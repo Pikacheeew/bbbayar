@@ -1,0 +1,324 @@
+<title>BBayar QRIS Checkout</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: buyer's phone screen on the left, the server's view (mutations, log, QR anatomy) on the right; stacks on phones. */
+:root {
+  --bg: #F2F4F3; --surface: #FFFFFF; --ink: #15211F; --muted: #5C6966; --line: #DAE0DE;
+  --accent: #2F46C9; --accent-soft: #E7EAFB;
+  --pending: #9A5C00; --pending-soft: #FBEFD9; --paid: #0F7A54; --paid-soft: #DDF3E9; --bad: #B4232C; --bad-soft: #FBE3E4;
+  --hl: #FFF1B8;
+  --qr-bg: #FFFFFF; --qr-ink: #111111;
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0E1412; --surface: #161F1C; --ink: #E4ECE9; --muted: #93A29E; --line: #29342F;
+  --accent: #8D9BFF; --accent-soft: #1F2547;
+  --pending: #E6A845; --pending-soft: #33260F; --paid: #3DCB90; --paid-soft: #0F2E22; --bad: #F2737A; --bad-soft: #3A1518;
+  --hl: #4A3F12; color-scheme: dark;
+} }
+:root[data-theme="dark"] {
+  --bg: #0E1412; --surface: #161F1C; --ink: #E4ECE9; --muted: #93A29E; --line: #29342F;
+  --accent: #8D9BFF; --accent-soft: #1F2547;
+  --pending: #E6A845; --pending-soft: #33260F; --paid: #3DCB90; --paid-soft: #0F2E22; --bad: #F2737A; --bad-soft: #3A1518;
+  --hl: #4A3F12; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+@media (max-width: 480px) { .wide-only { display: none; } }
+body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 28px 48px; }
+.wrap { max-width: 1120px; margin: 0 auto; display: grid; gap: 24px; }
+header { display: grid; gap: 6px; }
+h1 { font: 700 clamp(26px, 4vw, 36px)/1.1 var(--display); margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { font: 600 17px/1.3 var(--display); margin: 0; }
+.lede { color: var(--muted); margin: 0; max-width: 68ch; }
+.tag { font: 500 11px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.grid { display: grid; grid-template-columns: minmax(0, 380px) minmax(0, 1fr); gap: 24px; align-items: start; }
+@media (max-width: 860px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px; display: grid; gap: 16px; min-width: 0; }
+.stack { display: grid; gap: 24px; min-width: 0; }
+
+/* buyer screen */
+.phone { border-radius: 26px; padding: 22px 20px; }
+.form { display: grid; gap: 12px; }
+label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+input { font: 500 16px var(--mono); padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); color: var(--ink); width: 100%; }
+button { font: 600 14px var(--body); border-radius: 9px; padding: 11px 14px; cursor: pointer; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pay { display: grid; gap: 14px; justify-items: center; text-align: center; }
+.amount { font: 700 34px/1 var(--display); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.amount .code { color: var(--accent); }
+.breakdown { font: 13px var(--mono); color: var(--muted); }
+.qr { background: var(--qr-bg); padding: 14px; border-radius: 12px; border: 1px solid var(--line); width: 244px; max-width: 100%; aspect-ratio: 1; display: grid; place-items: center; position: relative; }
+.qr canvas, .qr img { width: 100% !important; height: auto !important; }
+.qr .done { position: absolute; inset: 0; border-radius: 12px; background: var(--paid-soft); color: var(--paid); display: grid; place-items: center; font: 700 22px var(--display); }
+.demo-note { font-size: 12px; color: var(--muted); }
+.pill { display: inline-flex; align-items: center; gap: 7px; font: 600 13px var(--body); padding: 6px 12px; border-radius: 999px; }
+.pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.pill.pending { background: var(--pending-soft); color: var(--pending); }
+.pill.pending::before { animation: blink 1.2s infinite; }
+.pill.paid { background: var(--paid-soft); color: var(--paid); }
+.pill.expired { background: var(--bad-soft); color: var(--bad); }
+@keyframes blink { 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .pill.pending::before { animation: none; } }
+.timer { font: 500 14px var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); }
+.poll { font: 12px var(--mono); color: var(--muted); }
+
+/* server side */
+.sim { display: flex; flex-wrap: wrap; gap: 10px; }
+.hint { font-size: 13px; color: var(--muted); margin: 0; }
+.tablewrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; font: 500 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+td.mono { font-family: var(--mono); white-space: nowrap; }
+tr.matched td { background: var(--paid-soft); }
+.chip { font: 600 11px var(--body); padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.chip.yes { background: var(--paid-soft); color: var(--paid); }
+.chip.no { background: var(--bg); color: var(--muted); }
+.empty { color: var(--muted); font-size: 13px; padding: 10px; }
+ol.log { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; font-size: 13px; }
+ol.log li { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 10px; }
+ol.log time { font: 12px var(--mono); color: var(--muted); }
+ol.log code { font: 12px var(--mono); background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+td.val { font-family: var(--mono); word-break: break-all; }
+tr.changed td { background: var(--hl); }
+.raw { font: 12px/1.6 var(--mono); white-space: pre-wrap; word-break: break-all; background: var(--bg); padding: 12px; border-radius: 9px; margin: 0; }
+.raw mark { background: var(--hl); color: inherit; border-radius: 3px; }
+</style>
+
+<div class="wrap">
+  <header>
+    <span class="tag">BBayar · payment demo</span>
+    <h1>Dynamic QRIS from a static ShopeePay QR</h1>
+    <p class="lede">Create a payment, then play the buyer. Everything runs in this page: the QR is built with the same converter as the real edge function, and ShopeePay is simulated. The QR uses a fake merchant, so no app can pay it.</p>
+  </header>
+
+  <div class="grid">
+    <section class="panel phone" aria-label="Buyer's checkout screen">
+      <span class="tag">Buyer's screen</span>
+      <form class="form" id="form">
+        <label for="order">Order
+          <input id="order" value="BB-1042" maxlength="40" required>
+        </label>
+        <label for="base">Order total (Rp)
+          <input id="base" inputmode="numeric" value="150000" required>
+        </label>
+        <button class="primary" type="submit" id="create">Create payment</button>
+        <p class="hint" id="formErr" role="alert" hidden></p>
+      </form>
+
+      <div class="pay" id="pay" hidden>
+        <span class="pill pending" id="status">Waiting for payment</span>
+        <div class="amount" id="amount"></div>
+        <div class="breakdown" id="breakdown"></div>
+        <div class="qr" id="qr"></div>
+        <div class="timer" id="timer"></div>
+        <div class="poll" id="poll"></div>
+        <div class="demo-note">Demo QR · fake merchant · cannot be paid</div>
+        <button type="button" id="reset">Start a new payment</button>
+      </div>
+    </section>
+
+    <div class="stack">
+      <section class="panel">
+        <h2>Play the buyer</h2>
+        <p class="hint">The checkout page asks the server every 3 seconds. A payment only counts if the amount matches to the rupiah and it arrived after the QR was created. The amount is locked in the buyer's app, so the one way to overpay is scanning the same QR again after paying.</p>
+        <div class="sim">
+          <button type="button" id="payExact" disabled>Buyer pays the exact amount</button>
+          <button type="button" id="payOther" disabled>Another customer pays Rp 150.000</button>
+          <button type="button" id="payTwice" disabled>Buyer pays the same QR again</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>ShopeePay incoming payments</h2>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Time</th><th class="wide-only">Transaction</th><th>Paid with</th><th style="text-align:right">Amount</th><th>Match</th></tr></thead>
+            <tbody id="feed"><tr><td colspan="5" class="empty">No payments yet.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Server log</h2>
+        <ol class="log" id="log"></ol>
+      </section>
+
+      <section class="panel">
+        <h2>Inside the QR</h2>
+        <p class="hint">Highlighted fields are the only ones the converter changes. Merchant details stay exactly as ShopeePay issued them.</p>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Tag</th><th>Field</th><th>Static</th><th>Dynamic</th></tr></thead>
+            <tbody id="anatomy"></tbody>
+          </table>
+        </div>
+        <pre class="raw" id="raw"></pre>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+// ---- QRIS converter (same logic as supabase/functions/_shared/qris.ts) ----
+const enc = new TextEncoder();
+function crc16(s) {
+  let c = 0xffff;
+  for (const b of enc.encode(s)) { c ^= b << 8; for (let i = 0; i < 8; i++) c = c & 0x8000 ? ((c << 1) ^ 0x1021) & 0xffff : (c << 1) & 0xffff; }
+  return c.toString(16).toUpperCase().padStart(4, "0");
+}
+function parseTlv(s) {
+  const out = []; let i = 0;
+  while (i < s.length) { const len = +s.slice(i + 2, i + 4); out.push([s.slice(i, i + 2), s.slice(i + 4, i + 4 + len)]); i += 4 + len; }
+  return out;
+}
+const buildTlv = items => items.map(([t, v]) => t + String(v.length).padStart(2, "0") + v).join("");
+const withCrc = body => body + "6304" + crc16(body + "6304");
+function toDynamic(staticQris, amount) {
+  const out = [];
+  for (const [t, v] of parseTlv(staticQris).filter(([t]) => t !== "63" && t !== "54")) {
+    out.push(t === "01" ? ["01", "12"] : [t, v]);
+    if (t === "53") out.push(["54", String(amount)]);
+  }
+  return withCrc(buildTlv(out));
+}
+// Self-check against a real issuer QRIS (Xendit docs): CRC must be 63CC.
+console.assert(crc16("00020101021226570011ID.DANA.WWW011893600915015706056102091570605610303UME51440014ID.CO.QRIS.WWW0215ID20210807329890303UME520489315303360540410005802ID5906XENDIT6015Kota Jakarta Se61051219062720115QjZudXMDN7Zn5eR60490011ID.DANA.WWW0425MER202107140077450960864105011630463CC".slice(0, -4)) === "63CC", "CRC self-check failed");
+
+// Fake static QRIS: made-up acquirer and NMID, so scanning it in a real app fails.
+const STATIC = withCrc(buildTlv([
+  ["00", "01"], ["01", "11"],
+  ["26", buildTlv([["00", "ID.CO.BBAYAR.DEMO"], ["01", "9360000000000000000"], ["02", "DEMO00000000001"], ["03", "UMI"]])],
+  ["51", buildTlv([["00", "ID.CO.QRIS.WWW"], ["02", "ID0000000000000"], ["03", "UMI"]])],
+  ["52", "5999"], ["53", "360"], ["58", "ID"], ["59", "BBAYAR DEMO"], ["60", "JAKARTA"], ["61", "10110"],
+  ["62", buildTlv([["07", "A01"]])],
+]));
+
+const NAMES = { "00": "Format version", "01": "Static (11) or dynamic (12)", "26": "Merchant account", "51": "QRIS merchant ID", "52": "Merchant category", "53": "Currency (360 = IDR)", "54": "Amount", "58": "Country", "59": "Merchant name", "60": "City", "61": "Postal code", "62": "Additional data", "63": "Checksum (CRC-16)" };
+const ISSUERS = ["GoPay", "DANA", "OVO", "BCA", "Mandiri", "SeaBank", "ShopeePay"];
+const POLL_MS = 3000, TTL_MS = 15 * 60 * 1000;
+
+const $ = id => document.getElementById(id);
+const rp = n => "Rp " + n.toLocaleString("id-ID");
+const hhmmss = d => new Date(d).toLocaleTimeString("en-GB");
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+let intent = null, feed = [], issued = [], timers = [], checks = 0, txnSeq = 260000000;
+
+function log(html) {
+  const li = document.createElement("li");
+  li.innerHTML = `<time>${hhmmss(new Date())}</time><span>${html}</span>`;
+  $("log").prepend(li);
+}
+
+function renderFeed() {
+  $("feed").innerHTML = feed.length ? feed.map(t => `
+    <tr class="${t.order ? "matched" : ""}">
+      <td class="mono">${hhmmss(t.at)}</td><td class="mono wide-only">${t.id}</td><td>${t.issuer}</td>
+      <td class="num">${rp(t.amount)}</td>
+      <td>${t.order ? '<span class="chip yes">Settles ' + esc(t.order) + "</span>" : '<span class="chip no">No match</span>'}</td>
+    </tr>`).join("") : '<tr><td colspan="5" class="empty">No payments yet.</td></tr>';
+}
+
+function renderAnatomy(staticQ, dynQ) {
+  const s = Object.fromEntries(parseTlv(staticQ)), d = parseTlv(dynQ);
+  $("anatomy").innerHTML = d.map(([t, v]) => {
+    const before = s[t] ?? "—", changed = before !== v;
+    return `<tr class="${changed ? "changed" : ""}"><td class="mono">${t}</td><td>${NAMES[t] ?? ""}</td><td class="val">${esc(before)}</td><td class="val">${esc(v)}</td></tr>`;
+  }).join("");
+  $("raw").innerHTML = d.map(([t, v]) => {
+    const seg = esc(t + String(v.length).padStart(2, "0") + v);
+    return ["01", "54", "63"].includes(t) ? `<mark>${seg}</mark>` : seg;
+  }).join("");
+}
+
+function setStatus(status) {
+  intent.status = status;
+  const pill = $("status");
+  pill.className = "pill " + status;
+  pill.textContent = { pending: "Waiting for payment", paid: "Paid", expired: "Expired" }[status];
+  const open = status === "pending";
+  ["payExact", "payOther"].forEach(id => $(id).disabled = !open);
+  $("payTwice").disabled = status !== "paid";
+  if (!open) { timers.forEach(clearInterval); timers = []; }
+  if (status === "paid") $("qr").insertAdjacentHTML("beforeend", '<div class="done">Paid ✓</div>');
+}
+
+// Same rule as _shared/match.ts: successful, exact amount, after the QR was created.
+function check() {
+  checks++;
+  const match = feed.find(t => t.success && t.amount === intent.amount && t.at >= intent.createdAt && !t.order);
+  $("poll").textContent = `check-payment called ${checks}× · scanned ${feed.length} payment${feed.length === 1 ? "" : "s"}`;
+  if (match) {
+    match.order = intent.order;
+    log(`<code>check-payment</code> found ${match.id} for ${rp(match.amount)} → order <b>${esc(intent.order)}</b> marked paid`);
+    setStatus("paid"); renderFeed();
+  } else if (Date.now() > intent.expiresAt) {
+    log(`QR for ${esc(intent.order)} expired with no matching payment`);
+    setStatus("expired");
+  }
+}
+
+function tick() {
+  const left = Math.max(0, intent.expiresAt - Date.now());
+  $("timer").textContent = `Pay within ${String(Math.floor(left / 60000)).padStart(2, "0")}:${String(Math.floor(left / 1000) % 60).padStart(2, "0")}`;
+}
+
+function incoming(amount, note) {
+  const t = { id: "SP" + (++txnSeq), amount, at: Date.now(), success: true, issuer: ISSUERS[Math.floor(Math.random() * ISSUERS.length)] };
+  feed.unshift(t); renderFeed();
+  log(`ShopeePay received ${rp(amount)} via ${t.issuer} <span style="color:var(--muted)">(${note})</span>`);
+}
+
+$("form").addEventListener("submit", e => {
+  e.preventDefault();
+  const order = $("order").value.trim(), base = parseInt($("base").value.replace(/\D/g, ""), 10);
+  const err = $("formErr");
+  if (!order || !(base >= 1 && base <= 9999001)) { err.textContent = "Enter an order name and a total between Rp 1 and Rp 9.999.001."; err.hidden = false; return; }
+  err.hidden = true;
+  const used = new Set([...feed.map(t => t.amount), ...issued]); // like the server's 60-min reservation
+  let code; do { code = 1 + Math.floor(Math.random() * 999); } while (used.has(base + code));
+  const amount = base + code;
+  issued.push(amount);
+  intent = { order, base, code, amount, qris: toDynamic(STATIC, amount), createdAt: Date.now(), expiresAt: Date.now() + TTL_MS, status: "pending" };
+  checks = 0;
+
+  $("form").hidden = true; $("pay").hidden = false;
+  $("amount").innerHTML = rp(amount).replace(/(\d{3})$/, '<span class="code">$1</span>');
+  $("breakdown").textContent = `${rp(base)} + unique code ${code}`;
+  $("payExact").textContent = `Buyer pays ${rp(amount)}`;
+  $("payOther").textContent = `Another customer pays ${rp(base)}`;
+  $("qr").innerHTML = "";
+  setStatus("pending");
+  try {
+    new QRCode($("qr"), { text: intent.qris, width: 512, height: 512, colorDark: "#111111", colorLight: "#ffffff", correctLevel: QRCode.CorrectLevel.M });
+  } catch {
+    $("qr").innerHTML = '<span class="hint">QR image could not load. The payment flow still works.</span>';
+  }
+  renderAnatomy(STATIC, intent.qris);
+  log(`<code>create-payment</code> order <b>${esc(order)}</b>: ${rp(base)} + code ${code} = ${rp(amount)}`);
+  tick(); renderFeed();
+  timers = [setInterval(check, POLL_MS), setInterval(tick, 1000)];
+});
+
+$("payExact").onclick = () => incoming(intent.amount, "exact amount");
+$("payOther").onclick = () => incoming(intent.base, "a different buyer, no unique code");
+$("payTwice").onclick = () => incoming(intent.amount, `same QR paid again; ${esc(intent.order)} is already paid, so this needs a refund`);
+$("reset").onclick = () => {
+  timers.forEach(clearInterval); timers = [];
+  $("pay").hidden = true; $("form").hidden = false;
+  $("order").value = "BB-" + (1043 + Math.floor(Math.random() * 900));
+};
+
+// Open in a working state: one payment already created.
+$("form").requestSubmit();
+</script>
