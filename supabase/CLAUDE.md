@@ -14,8 +14,9 @@ Payment is confirmed by polling the ShopeePay merchant portal for that exact amo
 - `supabase/functions/_shared/qris.ts`: static → dynamic converter (tag 01 → 12, tag 54 amount, CRC-16/CCITT-FALSE). Tested on the real QRIS; real payments went through.
 - `supabase/functions/_shared/shopeepay.ts`: the only file that talks to ShopeePay (unofficial portal API).
 - `supabase/functions/_shared/match.ts`: payment matching rule (success + exact amount + after QR creation).
-- `create-payment`: `{ order_ref, amount }` → reserves a unique code, returns the QRIS.
-- `check-payment`: `{ id }` → polls ShopeePay, marks paid, lists repeat payments in `payment_duplicates`.
+- `create-payment`: `{ participant_id }` → reads the total from `participants`, reserves a unique code, returns the QRIS (reuses an open one). `order_ref` = participant id.
+- `check-payment`: `{ id }` → polls ShopeePay, marks the intent and the participant paid (`mark_participant_paid`), lists repeat payments in `payment_duplicates`.
+- `ParticipantView.tsx` calls both: shows the QR, polls `check-payment` every 5s. The "Simulate payment" button is gone.
 - `docs/qris-payment-demo.html`: standalone demo with a fake merchant and simulated ShopeePay.
 
 ## ShopeePay portal API (confirmed 2026-11-03)
@@ -26,7 +27,8 @@ Payment is confirmed by polling the ShopeePay merchant portal for that exact amo
 ## Still open
 1. **Response shape unconfirmed.** `shopeepay.ts` guesses `data.list[]` with `transactionId`, `amount` ("1.633" style), `createTime`, `status === 3`. Get a real response from DevTools (censor names/phones) and fix the mapping.
 2. **Secrets** (set in Supabase dashboard, never in code or chat): `STATIC_QRIS`, `SHOPEE_TOKEN`, `SHOPEE_LIST_URL`.
-3. Deploy `create-payment` and `check-payment`, then pay a test QR and confirm the row turns `paid`.
+3. Deploy `create-payment` and `check-payment`, apply `20261104000000_lock_mark_participant_paid.sql`, then deploy the app. Pay a test QR and confirm the participant turns `paid`.
+   Apply the migration in the same release: before it, anyone can still call `mark_participant_paid`; after it, only the edge function can.
 4. Repeat payments are only detected when `check-payment` runs on a paid order; add a cron sweep before real volume.
 5. Unknown whether ShopeePay accepts calls from Supabase's servers. Check on the first deployed run.
 
@@ -34,11 +36,11 @@ Payment is confirmed by polling the ShopeePay merchant portal for that exact amo
 - A converted QR is not single-use and never expires at the network. The same QR can be paid twice.
   The order settles once; extra payments go to `payment_duplicates` for a manual refund.
 - The token is a portal session; it expires and must be replaced by hand.
-- BarengPRO has 33 pre-existing SECURITY DEFINER functions callable by `anon` (e.g. `mark_participant_paid`). Not from this work; fix separately.
+- BarengPRO has ~32 other pre-existing SECURITY DEFINER functions callable by `anon`. Not from this work; review separately.
 
 ## Tests
 ```
-node supabase/functions/_shared/qris.test.ts
-node supabase/functions/_shared/match.test.ts
+npx tsx supabase/functions/_shared/qris.test.ts    # Node 20 can't run .ts directly
+npx tsx supabase/functions/_shared/match.test.ts
 deno check supabase/functions/*/index.ts
 ```

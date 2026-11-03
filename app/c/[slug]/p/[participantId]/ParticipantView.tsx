@@ -23,6 +23,9 @@ import { PARTICIPANT_STATUS_LABEL, PARTICIPANT_STATUS_STYLES } from "@/lib/parti
 import { SHIPPING_FEE, SHIPPING_LABEL } from "@/lib/fees";
 
 const POLL_MS = 4000;
+const CHECK_PAYMENT_MS = 5000;
+
+type PaymentQr = { id: string; amount: number; qris: string; expires_at: string };
 
 function paymentReferenceCode(participantId: string) {
   const clean = participantId.replace(/-/g, "").toUpperCase().slice(0, 16);
@@ -45,7 +48,8 @@ export default function ParticipantView({
   const [participant, setParticipant] = useState<ParticipantDetail | null>(initial);
   const [expired, setExpired] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
-  const [paying, setPaying] = useState(false);
+  const [payment, setPayment] = useState<PaymentQr | null>(null);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [shippingMethod, setShippingMethod] = useState<ShippingMethod>("jnt");
   const [address, setAddress] = useState("");
@@ -84,11 +88,29 @@ export default function ParticipantView({
     }
   }, [participant?.reserved_until]);
 
+  const canPay = participant?.status === "awaiting_payment" && !!participant?.qr_payload;
+
   useEffect(() => {
-    if (participant?.qr_payload) {
-      QRCode.toDataURL(participant.qr_payload, { width: 240 }).then(setQrDataUrl);
-    }
-  }, [participant?.qr_payload]);
+    if (!canPay || payment || paymentError) return;
+    createClient()
+      .functions.invoke("create-payment", { body: { participant_id: initial.id } })
+      .then(({ data, error }) => {
+        if (error) setPaymentError("Couldn't create your payment QR. Please try again.");
+        else setPayment(data as PaymentQr);
+      });
+  }, [canPay, payment, paymentError, initial.id]);
+
+  useEffect(() => {
+    if (!canPay || !payment) return;
+    QRCode.toDataURL(payment.qris, { width: 240 }).then(setQrDataUrl);
+    // The get_participant poll above flips the page to "Paid" once check-payment settles it.
+    const supabase = createClient();
+    const id = setInterval(async () => {
+      const { data } = await supabase.functions.invoke("check-payment", { body: { id: payment.id } });
+      if (data?.status === "expired") setPayment(null);
+    }, CHECK_PAYMENT_MS);
+    return () => clearInterval(id);
+  }, [canPay, payment]);
 
   useEffect(() => {
     const originPostalCode = participant?.campaign_origin_postal_code;
@@ -179,25 +201,6 @@ export default function ParticipantView({
       return;
     }
     setParticipant(body.participant as ParticipantDetail);
-  }
-
-  async function handleSimulatePay() {
-    if (!participant) return;
-    setPaying(true);
-    setError(null);
-    const supabase = createClient();
-    const { error } = await supabase.rpc("mark_participant_paid", {
-      p_participant_id: participant.id,
-    });
-    setPaying(false);
-    if (error) {
-      setError(error.message);
-      return;
-    }
-    const { data } = await supabase.rpc("get_participant", {
-      p_participant_id: participant.id,
-    });
-    if (data) setParticipant(data as ParticipantDetail);
   }
 
   if (expired || !participant) {
@@ -494,7 +497,7 @@ export default function ParticipantView({
                 ? SHIPPING_LABEL[participant.shipping_method ?? "jnt"]
                 : "Pickup"}
             </p>
-            <Badge className="border-transparent bg-blue-100 text-blue-700">DOKU QRIS</Badge>
+            <Badge className="border-transparent bg-blue-100 text-blue-700">QRIS</Badge>
           </div>
 
           {!isPledge && !participant.campaign_requires_shipping && participant.campaign_origin_address && (
@@ -561,7 +564,15 @@ export default function ParticipantView({
           </dl>
           <Separator className="my-3" />
           <p className="text-sm text-muted-foreground">Amount to pay</p>
-          <p className="mt-1 text-3xl font-semibold text-foreground">{formatIDR(finalTotal)}</p>
+          <p className="mt-1 text-3xl font-semibold text-foreground">
+            {formatIDR(payment?.amount ?? finalTotal)}
+          </p>
+          {payment && payment.amount > finalTotal && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Includes a unique code of {formatIDR(payment.amount - finalTotal)} so we can match your
+              payment. Pay this exact amount.
+            </p>
+          )}
 
           {qrDataUrl && (
             // eslint-disable-next-line @next/next/no-img-element
@@ -577,17 +588,20 @@ export default function ParticipantView({
             {paymentReferenceCode(participant.id)}
           </p>
 
-          <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-left text-xs text-amber-800">
-            ⚠️ This is a dummy QRIS payment for demo purposes — no real bank
-            or DOKU transaction happens and no money moves. Scan or don&apos;t,
-            it doesn&apos;t matter: just click &quot;Simulate payment&quot;
-            below to mark it as paid.
-          </div>
-
-          {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
-          <Button onClick={handleSimulatePay} disabled={paying} className="mt-4 w-full">
-            {paying ? "Confirming…" : "Simulate payment"}
-          </Button>
+          {paymentError ? (
+            <>
+              <p className="mt-4 text-sm text-destructive">{paymentError}</p>
+              <Button onClick={() => setPaymentError(null)} className="mt-3 w-full">
+                Try again
+              </Button>
+            </>
+          ) : (
+            <p className="mt-4 text-sm text-muted-foreground">
+              {payment
+                ? "Scan with any e-wallet or mobile banking app. This page updates automatically once you've paid."
+                : "Preparing your QR…"}
+            </p>
+          )}
         </Card>
       )}
 

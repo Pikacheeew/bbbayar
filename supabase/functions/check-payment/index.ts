@@ -16,7 +16,7 @@ Deno.serve(async (req) => {
   if (typeof id !== "string") return json({ error: "id is required" }, 400);
 
   const { data: intent, error } = await db.from("payment_intents")
-    .select("id, amount, status, created_at, expires_at, paid_at, shopee_txn_id").eq("id", id).maybeSingle();
+    .select("id, order_ref, amount, status, created_at, expires_at, paid_at, shopee_txn_id").eq("id", id).maybeSingle();
   if (error) return json({ error: error.message }, 500);
   if (!intent) return json({ error: "not found" }, 404);
 
@@ -58,7 +58,13 @@ Deno.serve(async (req) => {
     }).eq("id", intent.id).neq("status", "paid").select("paid_at").maybeSingle();
     if (claimErr?.code === "23505") continue; // this ShopeePay payment already settled another intent
     if (claimErr) return json({ error: claimErr.message }, 500);
-    if (claimed) return reply("paid", { paid_at: claimed.paid_at });
+    if (claimed) {
+      // order_ref is the participant id (set by create-payment)
+      const { error: markErr } = await db.rpc("mark_participant_paid", { p_participant_id: intent.order_ref });
+      // shortcut: money is in but the participant stays unpaid if this fails; add a retry sweep before real volume.
+      if (markErr) console.error(`intent ${intent.id} paid but participant not marked:`, markErr.message);
+      return reply("paid", { paid_at: claimed.paid_at });
+    }
   }
 
   if (intent.status === "pending" && new Date(intent.expires_at).getTime() < Date.now()) {
