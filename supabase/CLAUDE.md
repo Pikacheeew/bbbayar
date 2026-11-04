@@ -8,7 +8,15 @@ Payment is confirmed by polling the ShopeePay merchant portal for that exact amo
 - Tables `payment_intents` and `payment_duplicates` are already applied there (both migrations in `supabase/migrations/`).
   Test row `TEST-001` (Rp 1.209) exists in `payment_intents`.
 - `create-payment` and `check-payment` are deployed (2026-11-04); secrets are set. ShopeePay accepts calls from Supabase.
-- Merchant: ShopeePay "Belajar Bersama", Pekanbaru, NMID ID1026631251752. The static QRIS string is not secret.
+- Merchant account details live only in the `STATIC_QRIS` secret. Keep them, and the token, out of the repo.
+
+## Changing merchant or token
+All three settings are Supabase secrets (the edge functions' `.env`); the code has no merchant data.
+Names are listed in `supabase/.env.example`.
+- Dashboard: BarengPRO → Edge Functions → Secrets → replace the value → Save. No redeploy needed.
+- Or from a file: copy `supabase/.env.example` to `supabase/.env` (git-ignored), fill it in, then
+  `npx supabase secrets set --env-file supabase/.env --project-ref dgzxzbhoehbdvajmpzqm`.
+- New merchant: also pay a small test QR first; open payments made on the old QRIS won't match the new account.
 
 ## Files
 - `supabase/functions/_shared/qris.ts`: static → dynamic converter (tag 01 → 12, tag 54 amount, CRC-16/CCITT-FALSE). Tested on the real QRIS; real payments went through.
@@ -26,7 +34,7 @@ Payment is confirmed by polling the ShopeePay merchant portal for that exact amo
 
 ## Still open
 1. **Response shape confirmed** (2026-11-04, matched a real Rp 1.037 payment end to end): `data.list[]` with `transactionId`, `amount` ("1.037"), `createTime` (unix s), `status === 3`. Result code is the `X-Resp-Code` header (0 = ok). An empty window returns `data: { total: 0, ... }` with no list.
-2. **Secrets** (set in Supabase dashboard, never in code or chat): `STATIC_QRIS`, `SHOPEE_TOKEN`, `SHOPEE_LIST_URL`.
+2. **Secrets** are set (never in code or chat): `STATIC_QRIS`, `SHOPEE_TOKEN`, `SHOPEE_LIST_URL`. See "Changing merchant or token".
 3. Live since 2026-11-04: app on Vercel project **bbbayar** (bbbayar.in, deployed with `npx vercel deploy --prod` from this folder; no Git auto-deploy), lock migration applied. Still untested: a real participant paying through the page (participant turns `paid`).
 4. Repeat payments are only detected when `check-payment` runs on a paid order; add a cron sweep before real volume.
 5. ShopeePay accepts calls from Supabase (confirmed 2026-11-04).
