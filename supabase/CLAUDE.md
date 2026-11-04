@@ -7,7 +7,7 @@ Payment is confirmed by polling the ShopeePay merchant portal for that exact amo
 - Supabase project: **BarengPRO** (`dgzxzbhoehbdvajmpzqm`, ap-southeast-1).
 - Tables `payment_intents` and `payment_duplicates` are already applied there (both migrations in `supabase/migrations/`).
   Test row `TEST-001` (Rp 1.209) exists in `payment_intents`.
-- Edge functions are NOT deployed yet.
+- `create-payment` and `check-payment` are deployed (2026-11-04); secrets are set. ShopeePay accepts calls from Supabase.
 - Merchant: ShopeePay "Belajar Bersama", Pekanbaru, NMID ID1026631251752. The static QRIS string is not secret.
 
 ## Files
@@ -25,7 +25,7 @@ Payment is confirmed by polling the ShopeePay merchant portal for that exact amo
 - Headers: no cookie, no CSRF. The body token is the only auth. Portal also sends `Origin`, `Referer`, `X-Timestamp-Ms`.
 
 ## Still open
-1. **Response wrapper unconfirmed.** Transaction fields are confirmed from a real payment (2026-11-04): `transactionId`, `amount` ("1.209"), `createTime` (unix s), `status === 3`. Result code is the `X-Resp-Code` header (0 = ok). Still a guess: the list sits at `data.list`.
+1. **Response wrapper partly confirmed.** Transaction fields are confirmed from a real payment (2026-11-04): `transactionId`, `amount` ("1.209"), `createTime` (unix s), `status === 3`. Result code is the `X-Resp-Code` header (0 = ok). An empty window returns `data: { total: 0, totalNetSales, totalCompletedCount }` with no list. Still a guess: a non-empty list sits at `data.list`.
 2. **Secrets** (set in Supabase dashboard, never in code or chat): `STATIC_QRIS`, `SHOPEE_TOKEN`, `SHOPEE_LIST_URL`.
 3. Deploy `create-payment` and `check-payment`, apply `20261104000000_lock_mark_participant_paid.sql`, then deploy the app. Pay a test QR and confirm the participant turns `paid`.
    Apply the migration in the same release: before it, anyone can still call `mark_participant_paid`; after it, only the edge function can.

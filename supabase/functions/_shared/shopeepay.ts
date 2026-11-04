@@ -47,9 +47,12 @@ export async function listShopeeTxns(startSec: number, endSec: number): Promise<
   const json = await res.json();
   if (code !== "0") throw new Error(`ShopeePay error ${code}: ${json.msg ?? json.message ?? "unknown"} (token expired?)`);
 
-  // Fail loudly on the guessed wrapper so the first live run names the real keys instead of "no payment".
-  if (!json.data || !("list" in json.data)) {
-    throw new Error(`ShopeePay response has no data.list; keys: ${Object.keys(json.data ?? json).join(", ")}`);
+  // An empty window has no list key, only { total: 0, ... } (seen 2026-11-04).
+  // Fail loudly on a non-empty one without data.list, so the first live run names the real key.
+  if (!json.data) throw new Error(`ShopeePay response has no data; keys: ${Object.keys(json).join(", ")}`);
+  if (!("list" in json.data)) {
+    if (Number(json.data.total) === 0) return [];
+    throw new Error(`ShopeePay response has no data.list; keys: ${Object.keys(json.data).join(", ")}`);
   }
   return (json.data.list ?? []).map((t: Record<string, unknown>) => ({
     id: String(t.transactionId ?? t.displayTransactionId),
