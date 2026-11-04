@@ -3,7 +3,7 @@
 // Request URL and body confirmed from the portal (2026-11-03).
 // Transaction fields confirmed from a real Rp 1.209 payment (2026-11-04):
 // transactionId "1294…", amount "1.209", createTime unix s, status 3 = success.
-// shortcut: the list's wrapper key (data.list) is still a guess — check the top of a real response.
+// List sits at data.list (confirmed by a matched Rp 1.037 payment, 2026-11-04).
 
 export type ShopeeTxn = {
   id: string;

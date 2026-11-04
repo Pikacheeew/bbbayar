@@ -25,12 +25,12 @@ Payment is confirmed by polling the ShopeePay merchant portal for that exact amo
 - Headers: no cookie, no CSRF. The body token is the only auth. Portal also sends `Origin`, `Referer`, `X-Timestamp-Ms`.
 
 ## Still open
-1. **Response wrapper partly confirmed.** Transaction fields are confirmed from a real payment (2026-11-04): `transactionId`, `amount` ("1.209"), `createTime` (unix s), `status === 3`. Result code is the `X-Resp-Code` header (0 = ok). An empty window returns `data: { total: 0, totalNetSales, totalCompletedCount }` with no list. Still a guess: a non-empty list sits at `data.list`.
+1. **Response shape confirmed** (2026-11-04, matched a real Rp 1.037 payment end to end): `data.list[]` with `transactionId`, `amount` ("1.037"), `createTime` (unix s), `status === 3`. Result code is the `X-Resp-Code` header (0 = ok). An empty window returns `data: { total: 0, ... }` with no list.
 2. **Secrets** (set in Supabase dashboard, never in code or chat): `STATIC_QRIS`, `SHOPEE_TOKEN`, `SHOPEE_LIST_URL`.
 3. Deploy `create-payment` and `check-payment`, apply `20261104000000_lock_mark_participant_paid.sql`, then deploy the app. Pay a test QR and confirm the participant turns `paid`.
    Apply the migration in the same release: before it, anyone can still call `mark_participant_paid`; after it, only the edge function can.
 4. Repeat payments are only detected when `check-payment` runs on a paid order; add a cron sweep before real volume.
-5. Unknown whether ShopeePay accepts calls from Supabase's servers. Check on the first deployed run.
+5. ShopeePay accepts calls from Supabase (confirmed 2026-11-04).
 
 ## Known limits (by design)
 - A converted QR is not single-use and never expires at the network. The same QR can be paid twice.
