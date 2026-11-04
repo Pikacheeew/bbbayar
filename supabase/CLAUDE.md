@@ -27,8 +27,7 @@ Payment is confirmed by polling the ShopeePay merchant portal for that exact amo
 ## Still open
 1. **Response shape confirmed** (2026-11-04, matched a real Rp 1.037 payment end to end): `data.list[]` with `transactionId`, `amount` ("1.037"), `createTime` (unix s), `status === 3`. Result code is the `X-Resp-Code` header (0 = ok). An empty window returns `data: { total: 0, ... }` with no list.
 2. **Secrets** (set in Supabase dashboard, never in code or chat): `STATIC_QRIS`, `SHOPEE_TOKEN`, `SHOPEE_LIST_URL`.
-3. Deploy `create-payment` and `check-payment`, apply `20261104000000_lock_mark_participant_paid.sql`, then deploy the app. Pay a test QR and confirm the participant turns `paid`.
-   Apply the migration in the same release: before it, anyone can still call `mark_participant_paid`; after it, only the edge function can.
+3. Live since 2026-11-04: app on Vercel project **bbbayar** (bbbayar.in, deployed with `npx vercel deploy --prod` from this folder; no Git auto-deploy), lock migration applied. Still untested: a real participant paying through the page (participant turns `paid`).
 4. Repeat payments are only detected when `check-payment` runs on a paid order; add a cron sweep before real volume.
 5. ShopeePay accepts calls from Supabase (confirmed 2026-11-04).
 
