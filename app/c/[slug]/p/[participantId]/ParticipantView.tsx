@@ -103,14 +103,18 @@ export default function ParticipantView({
   useEffect(() => {
     if (!canPay || !payment) return;
     QRCode.toDataURL(payment.qris, { width: 240 }).then(setQrDataUrl);
-    // The get_participant poll above flips the page to "Paid" once check-payment settles it.
     const supabase = createClient();
     const id = setInterval(async () => {
       const { data } = await supabase.functions.invoke("check-payment", { body: { id: payment.id } });
       if (data?.status === "expired") setPayment(null);
+      if (data?.status === "paid") {
+        // Swap the QR for "Paid" now instead of waiting for the next get_participant poll.
+        const { data: fresh } = await supabase.rpc("get_participant", { p_participant_id: initial.id });
+        if (fresh) setParticipant(fresh as ParticipantDetail);
+      }
     }, CHECK_PAYMENT_MS);
     return () => clearInterval(id);
-  }, [canPay, payment]);
+  }, [canPay, payment, initial.id]);
 
   useEffect(() => {
     const originPostalCode = participant?.campaign_origin_postal_code;
@@ -609,7 +613,7 @@ export default function ParticipantView({
         <Card className="mt-6 border-emerald-200 bg-emerald-50 p-6">
           <p className="text-lg font-medium text-emerald-700">Paid ✓</p>
           <p className="mt-1 text-sm text-emerald-600">
-            You paid {formatIDR(finalTotal)}. Thanks!
+            You paid {formatIDR(payment?.amount ?? finalTotal)}. Thanks!
           </p>
           {!isPledge && !participant.campaign_requires_shipping && participant.campaign_origin_address && (
             <p className="mt-1 text-sm text-emerald-600">
